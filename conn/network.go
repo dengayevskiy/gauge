@@ -26,8 +26,11 @@ import (
 	"sync"
 	"time"
 
+	"runtime/debug"
+
 	"github.com/getgauge/common"
 	"github.com/getgauge/gauge/gauge_messages"
+	"github.com/getgauge/gauge/logger"
 	"github.com/golang/protobuf/proto"
 )
 
@@ -88,6 +91,7 @@ func readResponse(conn net.Conn) ([]byte, error) {
 	data := make([]byte, 8192)
 	for {
 		n, err := conn.Read(data)
+		logger.Infof(true, "Connection length is %d\n", n)
 		if err != nil {
 			conn.Close()
 			return nil, fmt.Errorf("Connection closed [%s] cause: %s", conn.RemoteAddr(), err.Error())
@@ -96,6 +100,12 @@ func readResponse(conn net.Conn) ([]byte, error) {
 		buffer.Write(data[0:n])
 		messageLength, bytesRead := proto.DecodeVarint(buffer.Bytes())
 		if messageLength > 0 && messageLength < uint64(buffer.Len()) {
+
+			logger.Infof(true, "Message length is %d\n", messageLength)
+			logger.Infof(true, "Buffer length is %d\n", buffer.Len())
+			logger.Infof(true, "Bytes read: %d\n", bytesRead)
+			logger.Infof(true, "Message length + bytes read = %d\n", messageLength+uint64(bytesRead))
+
 			return buffer.Bytes()[bytesRead : messageLength+uint64(bytesRead)], nil
 		}
 	}
@@ -120,6 +130,13 @@ func WriteGaugeMessage(message *gauge_messages.Message, conn net.Conn) error {
 }
 
 func getResponseForGaugeMessage(message *gauge_messages.Message, conn net.Conn, res response, timeout time.Duration) {
+
+	defer func(message *gauge_messages.Message) {
+		if r := recover(); r != nil {
+			logger.Fatalf(true, "Panicing for request %s : %v\n%s", message.GetMessageType(), r, string(debug.Stack()))
+		}
+	}(message)
+
 	message.MessageId = common.GetUniqueID()
 	res.addTimer(timeout, message)
 	handle := func(err error) {
